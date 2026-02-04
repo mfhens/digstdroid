@@ -5,7 +5,7 @@
 [![License: EUPL-1.2](https://img.shields.io/badge/License-EUPL--1.2-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
 
-DK-AppStore is an open-source app distribution platform for critical Danish government applications, built on F-Droid foundations with enhanced security measures. Operated by Digitaliseringsstyrelsen (Danish Agency for Digital Government).
+DK-AppStore is an open-source app distribution platform for critical Danish government applications, built on F-Droid foundations with enhanced security measures.
 
 ## Key Features
 
@@ -93,11 +93,6 @@ For security vulnerabilities, please follow our [Security Policy](SECURITY.md).
 - Server components: [EUPL-1.2](LICENSE)
 - Android client: Apache-2.0 (see client/LICENSE)
 - Documentation: CC-BY-4.0
-
-## Contact
-
-- **Digitaliseringsstyrelsen**: [digst.dk](https://digst.dk)
-- **Security Issues**: security@digst.dk (PGP key in SECURITY.md)
 
 ---
 
