@@ -1,0 +1,31 @@
+# Clippy configuration for DK-AppStore
+# https://doc.rust-lang.org/clippy/configuration.html
+
+# MSRV for lint suggestions
+msrv = "1.75.0"
+
+# Cognitive complexity threshold
+cognitive-complexity-threshold = 25
+
+# Maximum lines in a function
+too-many-lines-threshold = 100
+
+# Maximum arguments in a function
+too-many-arguments-threshold = 7
+
+# Disallowed methods (use alternatives instead)
+disallowed-methods = [
+    # Use tracing instead
+    { path = "std::print", reason = "Use tracing macros for output" },
+    { path = "std::println", reason = "Use tracing macros for output" },
+    { path = "std::eprint", reason = "Use tracing macros for output" },
+    { path = "std::eprintln", reason = "Use tracing macros for output" },
+    # Use proper error handling
+    { path = "std::process::exit", reason = "Return Result instead of calling exit" },
+]
+
+# Disallowed types
+disallowed-types = [
+    # Use rustls instead
+    { path = "openssl::ssl::SslContext", reason = "Use rustls for TLS" },
+]

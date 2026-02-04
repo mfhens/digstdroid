@@ -1,0 +1,108 @@
+[workspace]
+resolver = "2"
+members = [
+    "dk-api",
+    "dk-signing",
+    "dk-build",
+    "dk-scanner",
+    "dk-common",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+authors = ["Digitaliseringsstyrelsen <digst@digst.dk>"]
+license = "EUPL-1.2"
+repository = "https://gitlab.com/digst/dk-appstore"
+homepage = "https://github.com/digst/dk-appstore"
+description = "Danish sovereign app distribution platform"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+
+# Web framework
+axum = { version = "0.7", features = ["macros"] }
+tower = { version = "0.4" }
+tower-http = { version = "0.5", features = ["cors", "trace", "compression-gzip"] }
+
+# Database
+sqlx = { version = "0.7", features = ["runtime-tokio", "postgres", "uuid", "chrono", "json"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# HTTP client
+reqwest = { version = "0.11", default-features = false, features = ["rustls-tls", "json"] }
+
+# Cryptography
+ring = "0.17"
+rustls = "0.22"
+
+# HSM/PKCS#11
+cryptoki = "0.6"
+
+# Observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+opentelemetry = "0.21"
+metrics = "0.22"
+metrics-exporter-prometheus = "0.13"
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Utilities
+uuid = { version = "1.6", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+url = { version = "2.5", features = ["serde"] }
+bytes = "1.5"
+base64 = "0.21"
+
+# Configuration
+config = "0.14"
+dotenvy = "0.15"
+
+# CLI
+clap = { version = "4.4", features = ["derive", "env"] }
+
+# Testing
+proptest = "1.4"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+all = "warn"
+pedantic = "warn"
+nursery = "warn"
+# Specific high-value lints
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "warn"
+dbg_macro = "warn"
+# Allow some pedantic lints that are too noisy
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+
+[profile.dev]
+# Faster compilation for development
+opt-level = 0
+debug = true
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true
+panic = "abort"
+
+[profile.release-debug]
+inherits = "release"
+debug = true
+strip = false

@@ -1,0 +1,119 @@
+# Pre-commit hooks for DK-AppStore
+# Install: uv tool install pre-commit && pre-commit install
+
+repos:
+  # General file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: no-commit-to-branch
+        args: ['--branch', 'main']
+
+  # Secret detection
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.1
+    hooks:
+      - id: gitleaks
+
+  # Rust formatting
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --all --
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy --all-targets --all-features -- -D warnings
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      - id: cargo-check
+        name: cargo check
+        entry: cargo check --all-targets --all-features
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+  # Rust-specific checks
+  - repo: local
+    hooks:
+      # Deny unsafe code (except where explicitly allowed)
+      - id: no-unsafe
+        name: check for unsafe code
+        entry: python -c "import sys, re; files=sys.argv[1:]; matches=[f'{f}:{i+1}' for f in files for i,l in enumerate(open(f)) if re.search(r'\bunsafe\b', l) and not re.search(r'//.*allow.*unsafe|#\[allow\(unsafe', l)]; print('\n'.join(matches)) if matches else None; sys.exit(1 if matches else 0)"
+        language: system
+        types: [rust]
+        exclude: '^server/dk-signing/'  # HSM code may need unsafe
+
+      # Deny unwrap/expect in library code
+      - id: no-unwrap
+        name: check for unwrap/expect in lib code
+        entry: python -c "import sys, re; files=[f for f in sys.argv[1:] if 'lib.rs' in f or '/src/' in f and 'main.rs' not in f and 'test' not in f]; matches=[f'{f}:{i+1}:{l.strip()}' for f in files for i,l in enumerate(open(f)) if re.search(r'\.(unwrap|expect)\(', l) and not re.search(r'//.*test|#\[cfg\(test', l)]; print('\n'.join(matches[:10])) if matches else None; sys.exit(1 if matches else 0)"
+        language: system
+        types: [rust]
+
+  # YAML linting
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.33.0
+    hooks:
+      - id: yamllint
+        args: ['-d', '{extends: relaxed, rules: {line-length: {max: 120}}}']
+
+  # Markdown linting
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.38.0
+    hooks:
+      - id: markdownlint
+        args: ['--fix', '--disable', 'MD013', 'MD033', 'MD041', '--']
+
+  # Shell script linting
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.9.0.6
+    hooks:
+      - id: shellcheck
+
+  # Python formatting and linting (fdroid-bridge) using ruff via uv
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: ruff format (fdroid-bridge)
+        entry: bash -c 'cd fdroid-bridge && uv run ruff format --check .'
+        language: system
+        types: [python]
+        files: ^fdroid-bridge/
+
+      - id: ruff-lint
+        name: ruff lint (fdroid-bridge)
+        entry: bash -c 'cd fdroid-bridge && uv run ruff check .'
+        language: system
+        types: [python]
+        files: ^fdroid-bridge/
+
+      - id: ty-check
+        name: ty type check (fdroid-bridge)
+        entry: bash -c 'cd fdroid-bridge && uv run ty check'
+        language: system
+        types: [python]
+        files: ^fdroid-bridge/
+        pass_filenames: false
+
+  # Commit message format
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v3.0.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        args: ['feat', 'fix', 'docs', 'style', 'refactor', 'test', 'chore', 'ci', 'perf', 'build']

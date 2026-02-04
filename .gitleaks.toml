@@ -1,0 +1,48 @@
+# Gitleaks configuration for DK-AppStore
+# https://github.com/gitleaks/gitleaks
+
+title = "DK-AppStore Gitleaks Config"
+
+[allowlist]
+description = "Global allowlist"
+paths = [
+    '''(^|/)\.gitleaks\.toml$''',
+    '''(^|/)test(s)?/''',
+    '''\.md$''',
+    '''podman-compose\.yaml$''',
+    '''\.gitlab-ci\.yml$''',
+    '''dev-setup\.sh$''',
+]
+# Development placeholder credentials (never use in production)
+regexes = [
+    '''dev_password''',
+    '''test_password''',
+    '''POSTGRES_PASSWORD:\s*test''',
+    '''POSTGRES_PASSWORD:\s*dev_password''',
+]
+
+# Extend default rules
+[extend]
+useDefault = true
+
+# Custom rules for DK-AppStore specific patterns
+[[rules]]
+id = "dk-appstore-hsm-pin"
+description = "HSM PIN detected"
+regex = '''HSM_PIN\s*=\s*['"]?[\w]+['"]?'''
+tags = ["key", "HSM"]
+
+[[rules]]
+id = "dk-appstore-signing-key"
+description = "Signing key path detected"
+regex = '''SIGNING_KEY\s*=\s*['"]?[/\w.-]+['"]?'''
+tags = ["key", "signing"]
+
+# Allowlist for test/example values
+[[rules.allowlist]]
+regexes = [
+    '''dev_password''',
+    '''test_password''',
+    '''example\.com''',
+    '''localhost''',
+]
