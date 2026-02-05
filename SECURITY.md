@@ -20,7 +20,7 @@ DK-AppStore is critical national infrastructure. We take security seriously.
 
 ### Do
 
-1. **Email**: security@digst.dk
+1. **Email**: TBD
 2. **Encrypt** your report using our PGP key (below)
 3. **Include**:
    - Description of the vulnerability
