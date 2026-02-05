@@ -123,6 +123,7 @@ flowchart TB
 
     subgraph ClientLayer["Client Layer"]
         android[DK-AppStore Android Client]
+        ios[DK-AppStore iOS Client]
         webapp[Web Portal]
         api[Public API]
     end
@@ -159,10 +160,12 @@ flowchart TB
     end
 
     citizen --> android
+    citizen --> ios
     citizen --> webapp
     business --> api
 
     android --> mirrors
+    ios --> mirrors
     webapp --> mirrors
     api --> index
 
@@ -986,17 +989,84 @@ flowchart LR
 
 ### Client Application Overview
 
-The DK-AppStore client application provides the user interface for browsing and installing applications.
+The DK-AppStore client applications provide the user interface for browsing and installing applications on both Android and iOS platforms.
+
+> **Architecture Decision:** Shared Rust core with platform-specific UI layers.  
+> See [ADR-002: iOS Distribution Strategy](docs/architecture/adr-002-ios-distribution-strategy.md) for full rationale.
+
+**Cross-Platform Strategy**: Security-critical logic is implemented once in Rust and shared across both platforms via FFI bindings. This ensures:
+- Single audit surface for cryptographic operations
+- Consistent security behavior across platforms
+- ~70% code sharing between Android and iOS clients
 
 **Offline-First Architecture**: The application index is cached locally, enabling full browsing functionality without network connectivity. Index updates occur opportunistically when connectivity is available.
 
 **No Account Requirement**: Users can browse, download, and install applications without creating accounts or providing identifying information. This design decision directly implements privacy-by-design principles.
 
 **Security Features**:
-- **Certificate pinning**: Prevents man-in-the-middle attacks using fraudulent certificates
+- **Certificate pinning**: Implemented in Rust core, prevents man-in-the-middle attacks using fraudulent certificates
 - **Device integrity detection**: Warns users if the device operating system has been modified in ways that could compromise security
 - **Application integrity verification**: Validates that the client application itself has not been tampered with
+- **Signature verification**: All cryptographic verification in Rust for memory safety
 - **Optional Tor integration**: Enables anonymous access for users requiring enhanced privacy
+
+### 9.0 Shared Client Core Architecture
+
+```mermaid
+flowchart TB
+    subgraph RustCore["Shared Rust Core (dk-client-core)"]
+        verification[Signature Verification]
+        index_parser[Index Parser]
+        cert_pin[Certificate Pinning]
+        crypto[Cryptographic Utilities]
+        download_logic[Download Logic]
+        update_logic[Update Checking]
+    end
+
+    subgraph FFI["FFI Layer"]
+        uniffi[UniFFI Bindings]
+        jni[JNI Bindings]
+    end
+
+    subgraph iOS["iOS Client (Swift)"]
+        ios_ui[SwiftUI Views]
+        ios_vm[ViewModels]
+        ios_bridge[RustBridge]
+    end
+
+    subgraph Android["Android Client (Kotlin)"]
+        android_ui[Compose/XML Views]
+        android_vm[ViewModels]
+        android_bridge[JNI Bridge]
+    end
+
+    RustCore --> uniffi
+    RustCore --> jni
+    uniffi --> ios_bridge
+    jni --> android_bridge
+    ios_bridge --> ios_vm
+    android_bridge --> android_vm
+    ios_vm --> ios_ui
+    android_vm --> android_ui
+```
+
+**Rust Core Responsibilities:**
+| Function | Implementation | Rationale |
+|----------|----------------|-----------|
+| Index signature verification | `ring` crate | Memory-safe cryptography |
+| APK/IPA signature verification | `ring` + platform parsers | Consistent verification logic |
+| Certificate pinning | `rustls` | Single pinning implementation |
+| Index parsing | `serde` | Type-safe deserialization |
+| Download integrity | SHA-256 in `ring` | Verified checksums |
+
+**Platform UI Responsibilities:**
+| Function | Android | iOS |
+|----------|---------|-----|
+| UI rendering | Kotlin + Compose/XML | Swift + SwiftUI |
+| System integration | Android SDK | iOS SDK |
+| App installation | PackageInstaller API | DMA Web Distribution |
+| Background updates | WorkManager | Background App Refresh |
+| Local storage | Room | SwiftData/CoreData |
 
 ### 9.1 DK-AppStore Android Client
 
@@ -1072,6 +1142,100 @@ sequenceDiagram
         Note right of Client: Full functionality<br/>with cached index
     end
 ```
+
+### 9.3 DK-AppStore iOS Client
+
+The iOS client provides equivalent functionality to the Android client, using the same shared Rust core for all security-critical operations. Distribution leverages the EU Digital Markets Act (DMA) provisions for alternative app distribution.
+
+```mermaid
+flowchart TB
+    subgraph UI["User Interface Layer (SwiftUI)"]
+        browse_ios[Browse Apps]
+        search_ios[Search]
+        details_ios[App Details]
+        settings_ios[Settings]
+        updates_ios[Update Manager]
+    end
+
+    subgraph ViewModel["ViewModel Layer"]
+        repo_vm[Repository ViewModel]
+        app_vm[App Detail ViewModel]
+        settings_vm[Settings ViewModel]
+    end
+
+    subgraph RustBridge["Rust Bridge (UniFFI)"]
+        core_bridge[DKClientCore]
+    end
+
+    subgraph RustCore["Shared Rust Core"]
+        verifier[Signature Verifier]
+        parser[Index Parser]
+        pinner[Certificate Pinner]
+    end
+
+    subgraph iOSServices["iOS Services"]
+        url_session[URLSession]
+        background[Background App Refresh]
+        keychain[Keychain Services]
+        swift_data[SwiftData]
+    end
+
+    UI --> ViewModel
+    ViewModel --> RustBridge
+    RustBridge --> RustCore
+    ViewModel --> iOSServices
+```
+
+### 9.4 iOS Distribution via DMA Web Distribution
+
+Apple's Digital Markets Act compliance enables alternative app distribution in the EU. DK-AppStore uses **Web Distribution**, which allows apps to be installed directly from the DK-AppStore website after Apple notarization.
+
+```mermaid
+sequenceDiagram
+    participant User as Danish Citizen
+    participant Safari as Safari Browser
+    participant Web as dk-appstore.dk
+    participant Apple as Apple Notarization
+    participant iOS as iOS Device
+
+    Note over User,iOS: One-time setup (first use only)
+    User->>iOS: Settings → Privacy & Security
+    iOS->>iOS: Enable "Install apps from dk-appstore.dk"
+    
+    Note over User,iOS: App installation flow
+    User->>Safari: Visit dk-appstore.dk
+    Safari->>Web: Browse catalog
+    Web->>Safari: Display apps (MitID, etc.)
+    User->>Safari: Tap "Install MitID"
+    Safari->>Web: Request IPA
+    Web->>Safari: Serve notarized IPA
+    Safari->>iOS: Trigger installation
+    iOS->>Apple: Verify notarization status
+    Apple->>iOS: Notarization valid
+    iOS->>User: Install prompt
+    User->>iOS: Confirm install
+    iOS->>iOS: Install app
+```
+
+**DMA Web Distribution Requirements:**
+
+| Requirement | DK-AppStore Implementation |
+|-------------|---------------------------|
+| Apple Developer Program membership | DIGST enrolled as organization |
+| EU Alternative Distribution terms | Accepted |
+| App notarization | All IPAs submitted to Apple for malware scanning |
+| Web hosting | IPAs hosted on Danish infrastructure (dk-appstore.dk) |
+| User opt-in | Users enable web distribution per-domain in Settings |
+
+**Comparison: Android vs iOS Distribution**
+
+| Aspect | Android | iOS |
+|--------|---------|-----|
+| User opt-in required | No (sideloading standard) | Yes (one-time setting toggle) |
+| Platform approval | None | Notarization (malware scan only) |
+| Distribution method | Direct APK download | DMA Web Distribution |
+| Update mechanism | In-app update check | In-app update check |
+| Installation friction | Low | Medium (first-time setup) |
 
 ---
 
@@ -1163,6 +1327,18 @@ The technology stack prioritizes open source solutions where appropriate. This a
 | **Database** | PostgreSQL | Reliable, open source |
 | **Cache** | Redis | Performance |
 | **Message Queue** | RabbitMQ | Reliable messaging |
+
+### 11.2 Client Technologies
+
+| Component | Technology | Rationale |
+|-----------|------------|-----------|
+| **Shared Client Core** | Rust | Memory safety, single audit surface (ADR-002) |
+| **Android UI** | Kotlin + Compose | Modern Android development |
+| **iOS UI** | Swift + SwiftUI | Modern iOS development |
+| **Android FFI** | JNI | Standard Android native interface |
+| **iOS FFI** | UniFFI | Type-safe Swift bindings from Rust |
+| **Android Distribution** | Direct APK | Standard sideloading |
+| **iOS Distribution** | DMA Web Distribution | EU alternative distribution compliance |
 
 ---
 
@@ -1374,7 +1550,7 @@ A: The investment must be weighed against the potential cost of a national ident
 A: No. The user experience is designed to be seamless. When installing MitID, citizens will be directed to DK-AppStore automatically. The installation process requires a single confirmation.
 
 **Q: What about iOS devices?**
-A: Apple's current platform policies restrict alternative app distribution. DK-AppStore is engaging with EU regulators regarding Digital Markets Act (DMA) compliance requirements that may enable alternative distribution mechanisms on iOS.
+A: DK-AppStore supports iOS through EU Digital Markets Act (DMA) Web Distribution. Danish citizens can install the DK-AppStore iOS client and apps like MitID directly from dk-appstore.dk after enabling a one-time setting on their device. The iOS client shares ~70% of its code with the Android client through a common Rust core, ensuring identical security guarantees on both platforms. See [ADR-002: iOS Distribution Strategy](docs/architecture/adr-002-ios-distribution-strategy.md) for technical details.
 
 **Q: How can stakeholders verify claims made in this document?**
 A: All platform code will be publicly available. All builds will be independently reproducible. All audit reports will be published. The verification principle underlying DK-AppStore applies equally to this documentation.

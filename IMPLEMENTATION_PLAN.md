@@ -77,16 +77,45 @@ This document outlines the implementation plan for the open source foundation of
 | **Signing (Dev)** | SoftHSM2 | HSM simulation for development |
 | **Signing (Prod)** | Thales Luna / Utimaco | FIPS 140-3 Level 3 (Phase 1+) |
 
-### 2.5 Client Application
+### 2.5 Client Applications
+
+> **Architecture Decision:** Shared Rust core with platform-specific UI layers.  
+> See [ADR-002: iOS Distribution Strategy](docs/architecture/adr-002-ios-distribution-strategy.md) for full rationale.
+
+#### 2.5.1 Shared Client Core (Rust)
+
+| Component | Technology | Rationale |
+|-----------|------------|-----------|
+| **Core Library** | `dk-client-core` crate | Single implementation of security-critical logic |
+| **FFI Bindings** | UniFFI (iOS), JNI (Android) | Type-safe cross-language bindings |
+| **Signature Verification** | ring | Consistent crypto across platforms |
+| **Index Parsing** | serde | Shared serialization logic |
+| **Certificate Pinning** | rustls | Memory-safe TLS with pinning |
+
+#### 2.5.2 Android Client
 
 | Component | Technology | Rationale |
 |-----------|------------|-----------|
 | **Base** | F-Droid Client fork | Proven codebase, active upstream |
 | **Language** | Kotlin | Modern Android standard |
+| **Core Integration** | JNI to dk-client-core | Shared Rust security logic |
 | **Min SDK** | API 24 (Android 7.0) | Balance security updates vs. coverage |
 | **Target SDK** | API 34 (Android 14) | Latest security features |
 | **Networking** | OkHttp + Retrofit | Certificate pinning support |
 | **Local DB** | Room | Type-safe SQLite abstraction |
+| **Distribution** | Direct APK download | Standard Android sideloading |
+
+#### 2.5.3 iOS Client (Phase 1)
+
+| Component | Technology | Rationale |
+|-----------|------------|-----------|
+| **Language** | Swift | iOS standard |
+| **UI Framework** | SwiftUI | Modern declarative UI |
+| **Core Integration** | UniFFI to dk-client-core | Shared Rust security logic |
+| **Min iOS** | iOS 15 | Balance features vs. coverage (~95% devices) |
+| **Networking** | URLSession | Native iOS networking |
+| **Local DB** | SwiftData / Core Data | Native iOS persistence |
+| **Distribution** | DMA Web Distribution | EU alternative distribution via Apple notarization |
 
 ### 2.6 Observability Stack
 
@@ -106,8 +135,10 @@ This document outlines the implementation plan for the open source foundation of
 | Signing Service | **Rust** | HSM integration, memory safety paramount |
 | Build Workers | **Rust** | Safe concurrency, hash verification |
 | Security Scanners | **Rust** (orchestration) | Coordination layer; calls external tools |
+| Client Core | **Rust** | Shared security logic across iOS/Android (ADR-002) |
 | fdroidserver Integration | **Python** | Subprocess interface to existing tooling |
-| Android Client | **Kotlin** | Android standard, F-Droid upstream compatibility |
+| Android Client UI | **Kotlin** | Android standard, F-Droid upstream compatibility |
+| iOS Client UI | **Swift** | iOS standard, SwiftUI for modern UI |
 | Infrastructure/Scripts | **Bash/Python** | Tooling, automation, non-critical paths |
 
 ---
@@ -182,11 +213,24 @@ dk-appstore/
 │   │   └── errors.py             # Error types
 │   └── tests/                    # pytest tests
 │
-├── client/                        # Android client application
+├── client-core/                   # Shared client core (Rust) - ADR-002
+│   ├── Cargo.toml
+│   └── src/
+│       ├── lib.rs                # Library root
+│       ├── repository.rs         # Repository management
+│       ├── index.rs              # Index parsing and caching
+│       ├── verification.rs       # Signature verification
+│       ├── crypto.rs             # Cryptographic utilities
+│       ├── download.rs           # Download management
+│       ├── update.rs             # Update checking logic
+│       └── uniffi.udl            # UniFFI interface definition
+│
+├── client-android/                # Android client application
 │   ├── app/                       # Main application module
 │   │   ├── src/
 │   │   │   ├── main/
 │   │   │   │   ├── kotlin/       # Kotlin source
+│   │   │   │   ├── rust/         # JNI bindings to client-core
 │   │   │   │   ├── res/          # Resources
 │   │   │   │   └── AndroidManifest.xml
 │   │   │   └── test/             # Unit tests
@@ -195,6 +239,15 @@ dk-appstore/
 │   ├── build.gradle.kts          # Root build config
 │   ├── settings.gradle.kts
 │   └── gradle.properties
+│
+├── client-ios/                    # iOS client application (Phase 1)
+│   ├── DKAppStore/
+│   │   ├── App/                  # SwiftUI app structure
+│   │   ├── Views/                # SwiftUI views
+│   │   ├── ViewModels/           # MVVM view models
+│   │   └── RustBridge/           # UniFFI generated Swift bindings
+│   ├── DKAppStore.xcodeproj
+│   └── Package.swift
 │
 ├── build-system/                  # Reproducible build infrastructure
 │   ├── images/                    # Container images for builds
@@ -323,13 +376,17 @@ GET  /metrics                      # Prometheus metrics
 - Scan results stored and queryable
 - OWASP Top 10 Mobile covered by rules
 
-### Milestone 5: Client Application Fork (Weeks 12-20)
+### Milestone 5: Shared Client Core & Android Client (Weeks 12-20)
 
 **Deliverables:**
-- [ ] F-Droid client forked and building
+- [ ] `client-core` Rust crate with FFI-friendly API
+- [ ] Signature verification in Rust (portable across platforms)
+- [ ] Index parsing and caching in Rust
+- [ ] JNI bindings for Android integration
+- [ ] F-Droid client forked and building with Rust core
 - [ ] Danish branding and localization (da_DK)
 - [ ] Hardcoded DK-AppStore repository endpoint
-- [ ] Certificate pinning for repository
+- [ ] Certificate pinning via rustls in client-core
 - [ ] Offline index caching functional
 - [ ] Basic UI customization (colors, logo)
 
@@ -338,6 +395,17 @@ GET  /metrics                      # Prometheus metrics
 - Can browse and install apps from test repository
 - Works offline with cached index
 - Passes basic security audit (no hardcoded secrets, pinning works)
+- Rust client-core compiles for Android ARM64/ARM32/x86_64
+- All security-critical operations use Rust core (not Kotlin)
+
+**Client Core API (Rust):**
+```rust
+// Key exports from client-core
+pub fn verify_index_signature(index: &[u8], signature: &[u8]) -> Result<bool, VerifyError>;
+pub fn verify_apk_signature(apk_path: &Path) -> Result<ApkSignatureInfo, VerifyError>;
+pub fn parse_index(data: &[u8]) -> Result<RepositoryIndex, ParseError>;
+pub fn check_certificate_pin(cert: &[u8], expected_pins: &[Pin]) -> Result<bool, PinError>;
+```
 
 ### Milestone 6: Integration & Documentation (Weeks 21-24)
 
@@ -430,18 +498,27 @@ pkcs11-tool --module /usr/lib/softhsm/libsofthsm2.so \
 
 ## 7. Team Structure (Recommended)
 
-### 7.1 Core Team (DIGST)
+### 7.1 Core Team (DIGST) - Phase 0
 
 | Role | Responsibility | FTE |
 |------|----------------|-----|
 | Technical Lead | Architecture decisions, vendor coordination, Rust expertise | 1.0 |
-| Rust Developer (Senior) | Server, API, signing service | 1.0 |
+| Rust Developer (Senior) | Server, API, signing service, client-core | 1.0 |
 | Rust Developer | Build system, security scanner orchestration | 1.0 |
-| Android Developer | Client application (Kotlin) | 0.5 |
+| Android Developer | Client application (Kotlin), JNI integration | 0.5 |
 | Security Engineer | Scanning pipeline, code reviews, threat modeling | 0.5 |
 | DevOps Engineer | CI/CD, infrastructure, container builds | 0.5 |
 
 **Note:** Team composition reflects Rust as primary language. Budget for Rust training for existing staff or hire experienced Rust developers.
+
+### 7.1.1 Additional Team (Phase 1 - iOS)
+
+| Role | Responsibility | FTE |
+|------|----------------|-----|
+| iOS Developer | SwiftUI client, UniFFI integration | 0.5-1.0 |
+| Rust Developer | UniFFI bindings, iOS cross-compilation | 0.5 (from existing team) |
+
+**Note:** iOS developer should have interest in Rust or willingness to learn FFI patterns. Consider contractor with Swift + systems programming background.
 
 ### 7.2 Community Contributors
 
@@ -458,16 +535,108 @@ pkcs11-tool --module /usr/lib/softhsm/libsofthsm2.so \
 | Metric | Target |
 |--------|--------|
 | Repository server operational | Yes |
-| Client app functional | Yes |
+| Android client app functional | Yes |
 | End-to-end flow demonstrated | Yes |
 | Test coverage (new code) | >70% |
 | Critical vulnerabilities | 0 |
 | Documentation completeness | Sufficient for vendor handover |
 | Community contributions | At least 3 external contributors |
+| Client-core compiles for iOS | Yes (preparation for Phase 1) |
+
+---
+
+## 8.1 Phase 1: iOS Client (Post-Android Launch)
+
+> See [ADR-002: iOS Distribution Strategy](docs/architecture/adr-002-ios-distribution-strategy.md) for full rationale.
+
+**Timeline:** 6 months after Android launch  
+**Objective:** Native iOS client using shared Rust core, distributed via DMA Web Distribution
+
+### Phase 1 Milestones
+
+#### Milestone 1.1: UniFFI Bindings (Months 1-2)
+
+**Deliverables:**
+- [ ] UniFFI interface definition (uniffi.udl) for client-core
+- [ ] Swift bindings generation automated in CI
+- [ ] iOS-compatible Rust compilation (aarch64-apple-ios, x86_64-apple-ios)
+- [ ] XCFramework packaging for Swift consumption
+
+**Acceptance Criteria:**
+- Swift can call all client-core functions
+- Rust core tests pass on iOS simulator
+- Memory safety maintained across FFI boundary
+
+#### Milestone 1.2: iOS UI Shell (Months 2-3)
+
+**Deliverables:**
+- [ ] SwiftUI application structure
+- [ ] Repository browsing UI
+- [ ] App detail views
+- [ ] Settings and preferences
+- [ ] Danish localization (da_DK)
+- [ ] Accessibility compliance
+
+**Acceptance Criteria:**
+- UI matches Android client functionality
+- Works on iOS 15+ devices
+- Passes Apple Human Interface Guidelines review
+
+#### Milestone 1.3: Apple Developer Setup (Month 3)
+
+**Deliverables:**
+- [ ] Apple Developer Program enrollment
+- [ ] Signing certificates and provisioning profiles
+- [ ] Notarization workflow established
+- [ ] EU Alternative Distribution terms accepted
+
+**Acceptance Criteria:**
+- Can submit IPA for notarization
+- Notarization completes successfully
+- App installs via web distribution link
+
+#### Milestone 1.4: DMA Web Distribution (Month 4)
+
+**Deliverables:**
+- [ ] Web distribution endpoint on DK-AppStore
+- [ ] IPA hosting infrastructure
+- [ ] Install flow documentation for users
+- [ ] "Enable web installs" user guide
+
+**Acceptance Criteria:**
+- Users can install iOS client from dk-appstore.dk
+- Installation works after enabling web distribution setting
+- MitID (test version) installs and runs
+
+#### Milestone 1.5: iOS Beta & Launch (Months 5-6)
+
+**Deliverables:**
+- [ ] Beta testing with Danish users
+- [ ] Performance optimization
+- [ ] Security audit of iOS-specific code
+- [ ] Public launch
+
+**Acceptance Criteria:**
+- 1000+ beta testers
+- No critical bugs
+- Security audit passed
+- MitID available on iOS via DK-AppStore
+
+### Phase 1 Success Criteria
+
+| Metric | Target |
+|--------|--------|
+| iOS client functional | Yes |
+| Parity with Android features | 100% |
+| Shared code percentage | >70% |
+| iOS 15+ device coverage | >95% of Danish iOS users |
+| App Store independence | Yes (DMA distribution only) |
 
 ---
 
 ## 9. Risks and Mitigations
+
+### 9.1 Phase 0 Risks (Android)
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|------------|--------|------------|
@@ -479,6 +648,18 @@ pkcs11-tool --module /usr/lib/softhsm/libsofthsm2.so \
 | Key personnel departure | Low | High | Documentation-first, knowledge sharing, code review culture |
 | Upstream F-Droid client divergence | Medium | Medium | Minimize custom changes, upstream fixes |
 | Crate dependency vulnerabilities | Low | Medium | cargo-audit in CI, cargo-deny for license/duplicate checks |
+
+### 9.2 Phase 1 Risks (iOS)
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|------------|--------|------------|
+| Apple changes DMA terms | Medium | High | Monitor EU regulatory developments; maintain App Store fallback option |
+| Apple notarization rejection | Low | High | Notarization is malware check only; government apps low risk |
+| UniFFI limitations block features | Low | Medium | Mozilla actively maintains; cbindgen as fallback |
+| User friction from web install toggle | Medium | Medium | Clear documentation; media campaign for MitID launch |
+| Rust iOS toolchain issues | Low | Medium | Well-documented; cargo-lipo and xcodebuild integration mature |
+| Swift/iOS expertise gap | Medium | Medium | Hire iOS developer with Rust interest; training budget |
+| DMA scope narrowing | Low | High | Engage with EU regulators; track EC enforcement actions |
 
 ---
 

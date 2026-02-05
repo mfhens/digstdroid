@@ -237,6 +237,94 @@ Review this code for security issues:
 - Error information leakage
 ```
 
+## Git Commit Standards
+
+This project uses [Conventional Commits](https://www.conventionalcommits.org/) for all commit messages. This enables automated changelog generation, semantic versioning, and clear project history.
+
+### Commit Message Format
+
+```
+<type>(<scope>): <description>
+
+[optional body]
+
+[optional footer(s)]
+```
+
+### Commit Types
+
+| Type | Description | Example |
+|------|-------------|---------|
+| `feat` | New feature | `feat(api): add app version history endpoint` |
+| `fix` | Bug fix | `fix(signing): handle HSM timeout correctly` |
+| `docs` | Documentation only | `docs(readme): update installation instructions` |
+| `style` | Formatting, no code change | `style(api): apply cargo fmt` |
+| `refactor` | Code change that neither fixes nor adds | `refactor(build): extract verification logic` |
+| `perf` | Performance improvement | `perf(index): cache parsed repository index` |
+| `test` | Adding or fixing tests | `test(scanner): add MobSF integration tests` |
+| `build` | Build system or dependencies | `build(deps): update axum to 0.7.4` |
+| `ci` | CI/CD configuration | `ci(gitlab): add iOS build job` |
+| `chore` | Other changes (tooling, etc.) | `chore(pre-commit): update gitleaks version` |
+| `revert` | Reverts a previous commit | `revert: feat(api): add app version history` |
+
+### Scopes
+
+Use these scopes to indicate which component is affected:
+
+| Scope | Component |
+|-------|-----------|
+| `api` | dk-api crate |
+| `signing` | dk-signing crate |
+| `build` | dk-build crate |
+| `scanner` | dk-scanner crate |
+| `common` | dk-common crate |
+| `client-core` | Shared Rust client core |
+| `android` | Android client |
+| `ios` | iOS client |
+| `fdroid-bridge` | Python fdroidserver integration |
+| `infra` | Infrastructure/Kubernetes |
+| `deps` | Dependencies |
+
+### Breaking Changes
+
+For breaking changes, add `!` after the type/scope or include `BREAKING CHANGE:` in the footer:
+
+```
+feat(api)!: change app endpoint response format
+
+BREAKING CHANGE: The /api/v1/apps endpoint now returns a paginated response.
+Clients must update to handle the new { items: [], total: N } format.
+```
+
+### Examples
+
+**Simple feature:**
+```
+feat(api): add app version history endpoint
+```
+
+**Bug fix with issue reference:**
+```
+fix(signing): handle HSM connection timeout
+
+The signing service now retries HSM connections up to 3 times
+with exponential backoff before failing.
+
+Fixes #123
+```
+
+**Documentation update:**
+```
+docs(architecture): add iOS distribution strategy (ADR-002)
+```
+
+**Dependency update:**
+```
+build(deps): update ring to 0.17.7
+
+Security patch for CVE-2024-XXXXX.
+```
+
 ## Disclosure
 
 ### When to Disclose AI Usage
@@ -251,7 +339,7 @@ Review this code for security issues:
 - Complex algorithms or logic
 - When AI helped find a solution approach
 
-**Format:**
+**Format (using Conventional Commits):**
 ```
 feat(api): add version history endpoint
 
